@@ -7,6 +7,8 @@ test/
 *.pyd
 *.spec
 convert_tripo.exe
+*.glb
+*.gltf
 .pytest_cache/
 .mypy_cache/
 .venv/
