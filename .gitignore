@@ -1,0 +1,15 @@
+build/
+dist/
+__pycache__/
+test/
+*.pyc
+*.pyo
+*.pyd
+*.spec
+convert_tripo.exe
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+.env
+playwright-report/
