@@ -2,8 +2,8 @@
 
 This tool automates a Tripo Studio workflow:
 
-1. Open a Tripo workspace URL in a headless browser.
-2. Detect the `.glb` file requested by the page.
+1. Inspect a Tripo workspace URL for signed `.glb` links.
+2. Fall back to a headless browser when needed.
 3. Download the original GLB.
 4. Run `gltf-transform dequantize` to remove mesh quantization and meshopt compression.
 5. Delete the original input so only the cleaned `_ready.glb` remains.
@@ -27,7 +27,7 @@ If Node.js is not installed, automatic installation of `gltf-transform` will not
 
 ## How it works
 
-The script uses Playwright to launch Chromium and listen to network requests. That is how it finds the actual `.glb` URL behind a Tripo page such as:
+The script first scans the page HTML for signed `.glb` URLs, then uses Playwright to launch Chromium and listen to network requests as a fallback. That is how it finds the actual `.glb` URL behind a Tripo page such as:
 
 ```text
 https://studio.tripo3d.ai/workspace/generate/your-model-id
@@ -92,9 +92,9 @@ The original input file is deleted after a successful conversion.
 
 When the input is a Tripo URL, the script will:
 
-1. Open the page.
-2. Capture the `.glb` request.
-3. Download the original file into the project folder.
+1. Open/read the page.
+2. Detect the `.glb` URL from HTML or browser traffic.
+3. Download the original file into the application folder.
 4. Convert it to `_ready.glb`.
 5. Delete the downloaded original file.
 
@@ -105,7 +105,7 @@ When the input is a local file, the script will:
 
 ## Notes
 
-- The script expects the Tripo page to expose the model through browser network requests.
+- The script expects the Tripo page to expose the model through HTML or browser network requests.
 - If the page requires authentication, you may need to add a logged-in Playwright context later.
 - The conversion step uses `gltf-transform dequantize` to remove quantization and meshopt compression.
 - If the model does not load within the capture window, the script will not find a `.glb` URL.

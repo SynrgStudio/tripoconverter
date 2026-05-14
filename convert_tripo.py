@@ -3,7 +3,10 @@ import sys
 import subprocess
 import time
 import shutil
+import html
+import re
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 
 def ensure_python_package(module_name, package_name=None):
@@ -98,6 +101,13 @@ def prompt_for_input_source():
         return user_input
 
 
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def build_download_path(source_url):
     parsed_url = urlparse(source_url)
     file_name = os.path.basename(parsed_url.path)
@@ -105,11 +115,64 @@ def build_download_path(source_url):
     if not file_name.lower().endswith(".glb"):
         file_name = f"tripo_download_{int(time.time())}.glb"
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(script_dir, file_name)
+    return os.path.join(get_app_dir(), file_name)
+
+
+def extract_glb_urls_from_text(text):
+    normalized_text = html.unescape(text)
+    normalized_text = normalized_text.replace("\\u002F", "/")
+    normalized_text = normalized_text.replace("\\/", "/")
+    normalized_text = normalized_text.replace("\\u0026", "&")
+
+    urls = []
+    url_pattern = re.compile(r"https?://[^\s\"'<>\\]+?\.glb(?:\?[^\s\"'<>\\]*)?", re.IGNORECASE)
+    for match in url_pattern.finditer(normalized_text):
+        candidate_url = match.group(0).rstrip(",)]}")
+        lowered_url = candidate_url.lower()
+        if ".glb" in lowered_url and "tripo" in lowered_url and candidate_url not in urls:
+            urls.append(candidate_url)
+
+    return urls
+
+
+def choose_best_glb_url(found_urls):
+    prioritized = [candidate_url for candidate_url in found_urls if "meshopt" in candidate_url.lower()]
+    if prioritized:
+        return prioritized[0]
+
+    prioritized = [candidate_url for candidate_url in found_urls if "tripo_pbr_model" in candidate_url.lower()]
+    if prioritized:
+        return prioritized[0]
+
+    return found_urls[0] if found_urls else None
+
+
+def find_glb_url_in_page_html(page_url):
+    print("[*] Looking for GLB URLs in the page HTML...")
+
+    try:
+        request = Request(page_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(request, timeout=30) as response:
+            page_html = response.read().decode("utf-8", errors="ignore")
+    except Exception as error:
+        print(f"[!] Could not read page HTML directly: {error}")
+        return None
+
+    found_urls = extract_glb_urls_from_text(page_html)
+    for candidate_url in found_urls:
+        print(f"[+] GLB detected: {candidate_url}")
+
+    return choose_best_glb_url(found_urls)
 
 
 def find_glb_url_from_tripo_page(page_url):
+    print(f"\n--- Analyzing the Tripo page ---")
+    print(f"URL: {page_url}")
+
+    html_glb_url = find_glb_url_in_page_html(page_url)
+    if html_glb_url:
+        return html_glb_url
+
     if not ensure_python_package("playwright", "playwright"):
         return None
 
@@ -123,17 +186,15 @@ def find_glb_url_from_tripo_page(page_url):
     if not ensure_playwright_browser():
         return None
 
-    print(f"\n--- Analyzing the Tripo page ---")
-    print(f"URL: {page_url}")
+    print("[*] Looking for GLB URLs in browser network traffic...")
 
     found_urls = []
 
     def remember_url(candidate_url):
-        lowered_url = candidate_url.lower()
-        if ".glb" in lowered_url and "tripo" in lowered_url:
-            if candidate_url not in found_urls:
-                found_urls.append(candidate_url)
-                print(f"[+] GLB detected: {candidate_url}")
+        for extracted_url in extract_glb_urls_from_text(candidate_url):
+            if extracted_url not in found_urls:
+                found_urls.append(extracted_url)
+                print(f"[+] GLB detected: {extracted_url}")
 
     try:
         with sync_playwright() as playwright:
@@ -164,18 +225,10 @@ def find_glb_url_from_tripo_page(page_url):
         return None
 
     if not found_urls:
-        print("[!] No .glb URL was found in the page network traffic.")
+        print("[!] No .glb URL was found in the page HTML or network traffic.")
         return None
 
-    prioritized = [candidate_url for candidate_url in found_urls if "meshopt" in candidate_url.lower()]
-    if prioritized:
-        return prioritized[0]
-
-    prioritized = [candidate_url for candidate_url in found_urls if "tripo_pbr_model" in candidate_url.lower()]
-    if prioritized:
-        return prioritized[0]
-
-    return found_urls[0]
+    return choose_best_glb_url(found_urls)
 
 
 def download_glb_file(file_url, destination_path, referer=None):
